@@ -7,9 +7,9 @@ This repository contains all data, code, and teaching materials for the **Microb
 📅 *AMR26*  🔗 https://amr26.blogs.rice.edu/agenda/
 
 The goal of this workshop is to introduce **microbiome data analysis and visualization in R**, with a strong emphasis on:
-- interpretability,
+- interpretability
 - responsible statistical practice
-- reproducible workflows.
+- reproducible workflows
 
 The workshop is designed to be run **entirely in Posit Cloud** (formerly RStudio Cloud). No local installation is required.
 

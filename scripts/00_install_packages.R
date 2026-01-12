@@ -46,11 +46,27 @@ install_bioconductor_if_missing <- function(pkgs) {
   }
 }
 
+# Helper function: install microViz from R Universe
+install_microviz_if_missing <- function() {
+  if (!requireNamespace("microViz", quietly = TRUE)) {
+    message("Installing microViz from R Universe (david-barnett)")
+    install.packages(
+      "microViz",
+      repos = c(
+        davidbarnett = "https://david-barnett.r-universe.dev",
+        getOption("repos")
+      )
+    )
+  } else {
+    message("microViz already installed")
+  }
+}
+
 # ---------------------------
 # Define required packages
 # ---------------------------
 
-# Workshop packages hosted in CRAN
+# Core CRAN packages for the workshop
 cran_pkgs <- c(
   "ggplot2",
   "dplyr",
@@ -59,46 +75,67 @@ cran_pkgs <- c(
   "stringr",
   "readr",
   "pheatmap",
-  "knitr", 
+  "knitr",
   "tidyverse",
-  "igraph"
+  "igraph",
+  "vegan"
 )
 
-# Workshop packages hosted in Bioconductor
+# Optional / enhancement CRAN packages
+optional_cran_pkgs <- c(
+  "patchwork",  # side-by-side plots
+  "cowplot",    # plot alignment
+  "scales"      # nicer scales/log formatting
+)
+
+# Suggested CRAN packages for microViz functionality
+microviz_suggested_cran <- c(
+  "ggtext",   # rotated labels in ord_plot()
+  "ggraph",   # taxatree_plots()
+  "DT",       # tax_fix_interactive()
+  "corncob"   # beta-binomial models in tax_model()
+)
+
+# Bioconductor packages (including microViz dependencies)
 bioconductor_pkgs <- c(
   "phyloseq",
-  "vegan",
   "microbiome",
-  "microViz",
+  "ComplexHeatmap",
   "ALDEx2"
-)
-
-# Optional / nice-to-have CRAN packages used for some workshop enhancements
-optional_cran_pkgs <- c(
-  "patchwork",   # side-by-side plots
-  "cowplot",     # plot alignment
-  "scales"       # nicer scales/log formatting
 )
 
 # ---------------------------
 # Install packages
 # ---------------------------
 
+# Install CRAN dependencies
 install_cran_if_missing(cran_pkgs)
 install_cran_if_missing(optional_cran_pkgs)
+install_cran_if_missing(microviz_suggested_cran)
+
+# Install Bioconductor dependencies
 install_bioconductor_if_missing(bioconductor_pkgs)
+
+# Install microViz from R Universe
+install_microviz_if_missing()
 
 # ---------------------------
 # Load packages silently but allow errors
 # ---------------------------
 
-required_pkgs <- c(cran_pkgs, bioconductor_pkgs)
+required_pkgs <- c(
+  cran_pkgs,
+  bioconductor_pkgs,
+  "microViz"
+)
 
 message("\n=== Loading required packages ===")
 for (p in required_pkgs) {
-  suppressPackageStartupMessages(library(p, character.only = TRUE))
+  suppressPackageStartupMessages(
+    library(p, character.only = TRUE)
+  )
   message("Loaded: ", p)
 }
 
 message("\nPackage setup complete.")
-message("Tip: If you see compilation errors on some systems, try restarting R and re-running this script.")
+message("Tip: If you see compilation errors, restart R and re-run this script.")
