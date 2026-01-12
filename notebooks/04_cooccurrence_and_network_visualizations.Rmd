@@ -74,7 +74,7 @@ Before writing code, it is critical to understand what we are measuring.
 This notebook assumes you have created a `phyloseq_object` in **Notebook 01**.
 
 ```{r load_phyloseq_object, include=FALSE}
-suppressMessages(source("scripts/01_loading_data_and_preprocessing.R"))
+suppressMessages(source("../scripts/01_loading_data_and_preprocessing.R"))
 
 stopifnot(exists("phyloseq_object"))
 stopifnot(inherits(phyloseq_object, "phyloseq"))

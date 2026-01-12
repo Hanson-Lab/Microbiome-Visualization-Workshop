@@ -55,7 +55,7 @@ For knitting, we rebuild the phyloseq object here by re-running the same steps u
 ```{r load_phyloseq_object, include=FALSE}
 # Build (or rebuild) the phyloseq object using the workshop script
 # This creates an object named: phyloseq_object
-suppressMessages(source("scripts/01_loading_data_and_preprocessing.R"))
+suppressMessages(source("../scripts/01_loading_data_and_preprocessing.R"))
 
 # Confirm the object exists and is the expected type
 stopifnot(exists("phyloseq_object"))

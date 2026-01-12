@@ -30,7 +30,7 @@ message("=== Microbiome Visualization Workshop: Load + preprocess data ===")
 
 ### Setting the paths to our workshop data
 # Sanity check to ensure you are at the project root (important for appropriate data downloading)
-if (!dir.exists("data")) {
+if (!dir.exists("../data")) {
   stop(
     "The 'data/' directory was not found.\n",
     "Make sure you opened the project (not just the script)."
@@ -41,7 +41,7 @@ if (!dir.exists("data")) {
 
 # Define data directory to reflect the relative pathing of our project repository.
 # This is the name of the folder in github with all of the data in it.
-data_dir <- "data"
+data_dir <- "../data"
 
 # File paths (relative to project root)
 otu_path      <- file.path(data_dir, "otu_table.csv")

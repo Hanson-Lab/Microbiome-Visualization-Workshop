@@ -59,16 +59,20 @@ By the end of the workshop, participants will be able to:
 1. Go to https://posit.cloud
 2. Sign in (or create a free account)
 
-### Step 2 — Import this Repository
+### Step 2 — Join Our Workshop Group
+1. Use the following link to join the group
+
+### Step 3 - Create A New Project From Our Template
 1. Click **New Project**
-2. Choose **From Git Repository**
-3. Paste the URL of this GitHub repository
-4. Click **Create Project**
+2. Choose **New Project from Template**
+3. Select the **Microbiome-Visualization-Workshop** option listed under From: Pre-meeting workshop
+4. Click **OK**
 
 Posit Cloud will automatically clone the repository and open an RStudio session.
 
-
 ## Installing Required Packages
+
+The packages for use on Posit Cloud are already installed. 
 
 Package installation and loading are handled automatically when knitting the notebooks.
 
@@ -166,10 +170,8 @@ No prior experience with `phyloseq` or network analysis is assumed. Basic famili
 
 If you reference figures or workflows from this workshop in your own work, please cite:
 
-> Hanson BL, *et al.*
-> **Microbiome structure and antimicrobial exposure in ADM samples**
-> *Microbiology Spectrum* (2023)
-> [https://journals.asm.org/doi/10.1128/spectrum.01430-23](https://journals.asm.org/doi/10.1128/spectrum.01430-23)
+> Walker JN, Hanson BM, Hunter T, Simar SR, Duran Ramirez JM, Obernuefemann CLP, Parikh RP, Tenenbaum MM, Margenthaler JA, Hultgren SJ, Myckatyn TM. 2023. A prospective randomized clinical trial to assess antibiotic pocket irrigation on tissue expander breast reconstruction. Microbiol Spectr 11:e01430-23.
+> https://doi.org/10.1128/spectrum.01430-23
 
 
 ## License
