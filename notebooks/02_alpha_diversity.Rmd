@@ -1,0 +1,427 @@
+---
+title: "02 – Describing the Microbiome: Composition and Alpha Diversity"
+author: "Blake Hanson, PhD"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+```{r 02_setup, include=FALSE}
+# Global chunk options for the workshop
+knitr::opts_chunk$set(
+  echo = TRUE,       # show code
+  message = TRUE,    # show messages (helpful for learning)
+  warning = FALSE    # keep output clean; we can turn warnings on if needed
+)
+
+# Knit from the project root so relative paths like "data/..." work
+knitr::opts_knit$set(root.dir = "..")
+```
+
+```{r packages_for_knit, include=FALSE}
+# Source package installation/loading script (used for knitting only)
+source("scripts/00_install_packages.R")
+```
+
+
+# Goal for this section
+
+In this notebook, we will focus on **describing the microbiome within samples** and **comparing within-sample diversity across sample groups**.
+
+By the end of this notebook you will be able to:
+
+1. Summarize the composition of a single sample at multiple taxonomy levels
+2. Create bar plots of the most abundant taxa (OTU-level and labeled with taxonomy)
+3. Visualize sequencing depth across samples and explain why rarefaction is used
+4. Rarefy counts for **alpha diversity only** so metrics are calculated at a common depth
+5. Calculate alpha diversity metrics and visualize differences across sample groups
+
+> **Tip for Posit Cloud:** Run each code chunk in order using the green “Run” button.
+
+
+## Step 1 — Load the phyloseq object
+
+This notebook assumes you have already created a `phyloseq_object` in **Notebook 01** for our workshop data.
+
+If you are starting fresh (new session), run **Notebook 01** first.
+For knitting, we rebuild the phyloseq object here by re-running the same steps used in Notebook 01.
+
+- If you are continuing directly from Notebook 01 in the same session, you may already have it.
+- If you are starting a fresh R session or have restarted your Posit Cloud environment, we will build it by running the workshop loading script.
+
+```{r load_phyloseq_object, include=FALSE}
+# Build (or rebuild) the phyloseq object using the workshop script
+# This creates an object named: phyloseq_object
+suppressMessages(source("scripts/01_loading_data_and_preprocessing.R"))
+
+# Confirm the object exists and is the expected type
+stopifnot(exists("phyloseq_object"))
+stopifnot(inherits(phyloseq_object, "phyloseq"))
+
+phyloseq_object
+```
+
+
+## Step 2 — Choose one sample to inspect in detail
+
+A useful first step in microbiome data analysis is to examine a single sample and ask:
+
+* Which taxa are present?
+* Which taxa are most abundant?
+* How “diverse” does this sample appear?
+
+For this workshop, we start with a single example sample, **NEPS_356**, which is a Drain sample.
+
+```{r set_single_sample}
+# Create a variable for our target sample 
+target_sample <- "NEPS_356"
+target_sample
+```
+
+Before moving on, let's confirm the sample exists within our phyloseq object
+
+```{r confirm_sample}
+# Print TRUE/FALSE if the target sample is in our phyloseq object
+target_sample %in% sample_names(phyloseq_object)
+```
+
+If the sample name is in the phyloseq object, this command will return the value "TRUE". 
+
+
+## Step 3 — Subset the phyloseq object to the single sample
+
+Subsetting lets us work with a simpler object and simplifies our required code for visualization. 
+
+```{r prune_phyloseq_object}
+# Subset the phyloseq object to only our sample of interest
+phyloseq_object_NEPS_356 <- prune_samples(sample_names(phyloseq_object) %in% target_sample, phyloseq_object)
+# Subset the OTUs and taxonomy data to only taxa present in our sample of interest
+phyloseq_object_NEPS_356 <- prune_taxa(taxa_sums(phyloseq_object_NEPS_356) > 0, phyloseq_object_NEPS_356)
+```
+
+```{r check_single_phyloseq_object}
+# Print the summary of the subset phyloseq object to show it only contains a single sample
+phyloseq_object_NEPS_356
+```
+
+
+## Step 4 — Create a table summarizing taxa in the sample (OTU + taxonomy + reads)
+
+While phyloseq is a great container for microbiome data, we often need to extract our data into a standard R data frame for inspection, plotting, or statistics.
+
+Here we are going to build a table that includes:
+
+* OTU ID  
+* Genus (if available)  
+* The most resolved taxonomy level for each OTU  
+* Read/amplicon count  
+* Proportion/relative abundance within the sample  
+
+This mirrors a very common workflow in microbiome analysis: we combine **counts + taxonomy** into a single interpretable table.
+
+
+### Step 4A — Create count and proportion vectors for the sample
+
+This step converts our counts into proportions/relative abundance so we can see both in our table below. 
+
+```{r one_sample_counts_and_props}
+# Convert to relative abundance into proportions
+phyloseq_object_NEPS_356_rel <- transform_sample_counts(
+  phyloseq_object_NEPS_356,
+  function(x) x / sum(x)
+)
+
+# Extract counts and proportions as named vectors for combining below into our single table
+counts_vector <- as.vector(otu_table(phyloseq_object_NEPS_356))
+names(counts_vector) <- taxa_names(phyloseq_object_NEPS_356)
+
+props_vector <- as.vector(otu_table(phyloseq_object_NEPS_356_rel))
+names(props_vector) <- taxa_names(phyloseq_object_NEPS_356_rel)
+```
+
+
+### Step 4B — Extract taxonomy and build the summary table
+
+This step joins the taxonomy table to the counts/proportions for the sample.
+
+```{r build_one_sample_summary_table}
+# Extract taxonomy table (lowercase ranks)
+NEPS_356_taxonomy_tbl <- as.data.frame(tax_table(phyloseq_object_NEPS_356), stringsAsFactors = FALSE)
+
+# Build tidy summary table that includes our OTU ID, the taxonomy, read/amplicon counts and proportions, and a label of the OTU ID and genus for plotting below
+one_sample_summary <- NEPS_356_taxonomy_tbl %>%
+  mutate(
+    TaxonID = rownames(NEPS_356_taxonomy_tbl),
+    Reads = counts_vector[TaxonID],
+    Proportion = props_vector[TaxonID],
+    Percent = Proportion*100
+  ) %>%
+  filter(!is.na(Reads) & Reads > 0) %>%
+  arrange(desc(Reads)) %>%
+  mutate(
+    # Clean genus names 
+    genus = ifelse(
+      is.na(genus) | genus == "" | genus %in% c("NA", "N/A", "unclassified"),
+      NA,
+      genus
+    ),
+    # A label of the OTU name and the 
+    GenusLabel = paste(TaxonID, genus, sep="-")
+  )
+
+# Let's visualize the table to make sure our formatting is correct
+head(one_sample_summary)
+```
+
+
+## Step 5 — Plot the top taxa in the sample (OTU / Taxon IDs)
+
+Now that we have a summary table, we can visualize the most abundant taxa in the sample.
+
+We start by plotting the top OTUs using the **TaxonID** variable. We also only want to visualize our top 15 most abundant OTUs as the more we visualize the more difficult this can be to interpret. Choosing 15 OTUs to plot is completely arbitrary and we could choose 10, 20, or any other reasonably assessable whole number. 
+
+```{r plot_top_taxa_by_taxonid}
+library(ggplot2)
+
+# Set our top N value for subsetting below
+top_n <- 15
+top_n
+
+# Create our subset dataframe of our summary table for only the top N OTUs 
+plot_df <- one_sample_summary %>%
+  slice_head(n = top_n) %>%
+  mutate(TaxonID = factor(TaxonID, levels = rev(TaxonID)))
+
+# Plot a bar plot of the relative abundance of the reads 
+ggplot(plot_df, aes(x = TaxonID, y = Percent)) +
+  geom_col() +
+  coord_flip() +
+  theme_bw() +
+  ylim(0,35) + 
+  labs(
+    title = paste0("Top ", top_n, " taxa in ", target_sample, " (Taxon IDs)"),
+    x = "Taxon ID",
+    y = "Relative abundance of reads (%)"
+  )
+```
+
+We can see that this is a relatively simple community that is dominated by four OTUs (with relative abundance >5%), but it is difficult to see what those OTUs are. Next, we will add in our taxonomy tables to the plot to make this more interpretable. 
+
+
+## Step 6 — Plot the top taxa in the sample (Taxon ID + genus suffix)
+
+Taxon IDs are unique, but they are not very interpretable biologically. Let's label our bar plot using our variable **GenusLabel** that includes the TaxonID and genus values separated by a dash. 
+
+This keeps labels unique while giving biological context (and avoids duplicate factor-level errors).
+
+Additionally, we explicitly convert TaxonID to a factor ordered by relative abundance so that this ordering can be reused in later plots.
+
+```{r plot_top_taxa_taxonid_plus_genus}
+# A feature/quirk of ggplot2 is it orders bars using factor levels, so when we change the x-axis variables we need to explicitly tell R to keep the same ordering.
+plot_df_temp <- one_sample_summary %>%
+  slice_head(n = top_n) %>%
+  mutate(
+    OrderVar = factor(TaxonID, levels = rev(TaxonID))
+  )
+genus_levels <- plot_df_temp$GenusLabel[match(levels(plot_df_temp$OrderVar), plot_df_temp$OrderVar)]
+plot_df_2 <- plot_df_temp %>%
+  mutate(
+    GenusLabel = factor(GenusLabel, levels = genus_levels)
+  )
+
+# Plot a bar plot of the relative abundance of the reads 
+ggplot(plot_df_2, aes(x = GenusLabel, y = Percent)) +
+  geom_col() +
+  coord_flip() +
+  theme_bw() +
+  ylim(0, 35) +
+  labs(
+    title = paste0(
+      "Top ", top_n, " taxa in ", target_sample,
+      " (OTU-level, labeled by OTU ID and genus)"
+    ),
+    x = "OTU ID – Genus",
+    y = "Relative abundance of reads (%)"
+  )
+```
+
+Now that we have looked at our single sample, we can move to our full-project alpha diversity assessments.
+
+
+## Step 7 — Alpha diversity: sequencing depth across samples (why rarefaction matters)
+
+Alpha diversity metrics can depend strongly on sequencing depth. If one sample has 5,000 reads and another has 50,000 reads, the deeper sample will often appear more diverse simply because we observed more reads. To account for this, we are going to rarefy our data. This is only admissible for alpha diversity metrics and we will go back to our un-rarefied phyloseq object for our other analyses today. If you would like to read more on why rarefaction is only OK for alpha diversity, please see [Waste Not, Want Not: Why Rarefying Microbiome Data is Inadmissible](https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1003531) by McMurdie and Holmes.
+
+Before calculating alpha diversity, we will:
+
+1. Summarize reads per sample  
+2. Plot reads per sample  
+3. Choose a depth threshold  
+4. Rarefy counts **for alpha diversity only**  
+
+
+### Step 7A — Build a sequencing depth table
+
+```{r build_depth_table}
+# To assess our sequencing depth per sample, first we want to pull out the information we need from the phyloseq object into a dedicated data frame
+depth_df <- data.frame(
+  SampleID = sample_names(phyloseq_object),
+  Reads = sample_sums(phyloseq_object),
+  Material = as.character(sample_data(phyloseq_object)$Material),
+  stringsAsFactors = FALSE
+)
+
+# Now, let's look at the summary statistics for our dataset and take a look at the top of the table we have created
+summary(depth_df$Reads)
+head(depth_df)
+```
+
+
+## Step 8 — Plot sequencing depth by sample group
+
+This plot helps us see whether certain sample types systematically have lower read depth, and it helps motivate why we might filter or rarefy.
+
+We are going to use a log scale here because read depth is often spread across multiple orders of magnitude.
+
+```{r plot_depth_by_material}
+ggplot(depth_df, aes(x = Material, y = Reads)) +
+  geom_boxplot(outlier.alpha = 0.25) +
+  geom_jitter(width = 0.15, alpha = 0.6, size = 1.5) +
+  scale_y_log10() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    title = "Sequencing depth by Material (reads per sample)",
+    x = "Material",
+    y = "Reads per sample (log10 scale)"
+  )
+```
+
+
+## Step 9 — Choose a rarefaction depth for alpha diversity
+
+For the workshop, we will rarefy to a fixed depth so that alpha diversity is computed on the same number of reads per sample.
+
+In many workflows, you either:
+
+* rarefy to the **minimum** depth (keeps all samples but may be low), or  
+* choose a threshold and **drop samples below it** (often preferable)  
+
+Here we will use a depth threshold of **5,000 reads**. The 5,000-read threshold is chosen for teaching purposes and because that is what we used in the publication. In real analyses this choice depends on study design and sequencing depth. 
+
+```{r set_rarefaction_threshold}
+min_reads <- 5000
+min_reads
+```
+
+```{r filter_low_depth_samples}
+# Keep only samples with at least 5,000 reads
+ps_alpha_input <- prune_samples(sample_sums(phyloseq_object) >= min_reads, phyloseq_object)
+
+# After removing samples, drop taxa that are now all-zero
+ps_alpha_input <- prune_taxa(taxa_sums(ps_alpha_input) > 0, ps_alpha_input)
+
+cat("Original samples:", nsamples(phyloseq_object), "\n")
+cat("Samples with >= 5000 reads:", nsamples(ps_alpha_input), "\n")
+```
+
+For simplicity, the dataset we are using has already had all failing samples dropped from it, but this is an important decision to make in your analyses. 
+
+## Step 10 — Rarefy the dataset (alpha diversity only)
+
+Rarefaction involves random subsampling of reads. We are going to set a seed so that the results are reproducible during the workshop. You can set the seed to any value you would like and the subsampling will become deterministic, we are choosing seed 1234. 
+
+```{r rarefy_alpha_only}
+set.seed(1234)
+
+ps_rarefied <- rarefy_even_depth(
+  ps_alpha_input,
+  sample.size = min_reads,
+  replace = FALSE,
+  trimOTUs = TRUE,
+  verbose = FALSE
+)
+
+# Our summary should now show every value is 5,000
+summary(sample_sums(ps_rarefied))
+```
+
+We can now see that our summary is all 5,000. This shows that our rarifaction was successful. 
+
+
+## Step 11 — Calculate alpha diversity metrics
+
+We will calculate several commonly used alpha diversity metrics:
+
+* Observed richness  
+* Shannon diversity  
+* Inverse Simpson diversity  
+
+```{r calculate_alpha_diversity}
+# Generate the table of alpha diversity for each sample across our selected diversity metrics
+alpha_all <- estimate_richness(
+  ps_rarefied,
+  measures = c("Observed", "Shannon", "InvSimpson")
+)
+
+# Make sure the sample IDs are carried over
+alpha_all$SampleID <- rownames(alpha_all)
+
+# Let's look at the top of the new table to make sure the format is what we expect
+head(alpha_all)
+```
+
+
+## Step 12 — Visualize alpha diversity by sample group (phyloseq-native)
+
+A simple approach is to use the phyloseq command `plot_richness()`, which pulls metadata directly from the phyloseq object.
+
+We will plot alpha diversity across `Material` categories to see whether within-sample diversity differs by sample type.
+
+```{r plot_alpha_diversity_by_material}
+# Create the richness plot by material
+plot_richness(
+  ps_rarefied,
+  x = "Material",
+  measures = c("Observed", "Shannon", "InvSimpson")
+) +
+  geom_boxplot(aes(group = Material), alpha = 0.25, outlier.alpha = 0.25) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    title = paste0("Alpha diversity by Material (rarefied to ", min_reads, " reads/sample)")
+  )
+```
+
+
+## Step 13 — (Optional) View alpha diversity values alongside metadata
+
+Sometimes it is helpful to inspect diversity values and metadata in the same table (for QC or for quick sanity checks before statistics).
+
+```{r merge_alpha_with_metadata}
+# Create a data frame of the sample_data to merge with the alpha diversity statistics created above
+meta_df <- as.data.frame(sample_data(ps_rarefied), check.names = FALSE)
+class(meta_df) <- "data.frame"
+
+# Merge the metadata and alpha diversity statistics
+alpha_with_meta <- cbind(
+  alpha_all,
+  meta_df[alpha_all$SampleID, , drop = FALSE]
+)
+
+# Let's look at the top of the new table to assure formatting and merging worked as expected
+head(alpha_with_meta)
+```
+
+
+# Summary
+
+In this notebook, we:
+
+* Examined the composition of a single sample and visualized its most abundant taxa  
+* Used taxonomy to improve interpretability of OTU-level plots  
+* Visualized sequencing depth and explained why depth matters for alpha diversity  
+* Filtered low-depth samples and rarefied to a common depth **for alpha diversity only**  
+* Calculated and visualized alpha diversity metrics across sample types  
+
+In the next notebook, we will focus on **beta diversity and ordination**, where we compare samples based on overall community composition.

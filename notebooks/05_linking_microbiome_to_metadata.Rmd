@@ -1,0 +1,420 @@
+---
+title: "05 – Linking Microbiome to Metadata: ABX (TAPI) in Patients Without Cancer"
+author: "Hossaena Ayele, MS"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r 05_setup, include=FALSE}
+# Global chunk options for the workshop
+knitr::opts_chunk$set(
+  echo = TRUE,       # show code
+  message = TRUE,    # show messages (helpful for learning)
+  warning = FALSE    # keep output clean; we can turn warnings on if needed
+)
+
+# Knit from the project root so relative paths like "data/..." work
+knitr::opts_knit$set(root.dir = "..")
+```
+
+```{r packages_for_knit, include=FALSE}
+# Source package installation/loading script (used for knitting only)
+# (Students do NOT need to run this chunk interactively)
+source("scripts/00_install_packages.R")
+```
+
+# Goal for this section
+
+In this notebook, we link microbiome composition to **clinical metadata**.
+
+We focus on the ADM Material from patients without cancer and ask whether receiving a **Triple Antibiotic Pocket Irrigant (TAPI)**—labeled as `ABX` in this dataset—is associated with:
+
+1. Differences in overall community composition *beta diversity)
+2. Differences in within-sample diversity (alpha diversity)
+3. Changes in the abundance of specific taxa (differential abundance)
+
+> **Tip for Posit Cloud:** Run each code chunk in order using the green “Run” button.
+
+
+## Step 1 — Load the phyloseq object
+
+This notebook assumes you have already created a `phyloseq_object` in **Notebook 01** for our workshop data.
+
+- If you are continuing from Notebook 01 in the same session, you may already have it.
+- If you are starting a fresh R session, we will rebuild it by running the workshop loading script.
+
+```{r load_phyloseq_object, include=FALSE}
+# Build (or rebuild) the phyloseq object using the workshop script
+# This creates an object named: phyloseq_object
+suppressMessages(source("scripts/01_loading_data_and_preprocessing.R"))
+
+# Confirm the object exists and is the expected type
+stopifnot(exists("phyloseq_object"))
+stopifnot(inherits(phyloseq_object, "phyloseq"))
+
+phyloseq_object
+```
+
+
+## Step 2 — Define the comparison and subset the dataset
+
+Our biological question is:
+
+**Among patients without cancer, does receiving TAPI (ABX = Yes vs No) alter the microbiome?**
+
+To answer this cleanly, we will:
+1. Restrict to patients without cancer (`CancerSideSample == "No"`)
+2. Remove samples with missing ABX information
+3. Drop taxa that are no longer present after subsetting
+
+```{r subset_no_cancer_abx}
+# Subset to patients without cancer
+ps_nocancer <- subset_samples(phyloseq_object, CancerSideSample == "No")
+ps_nocancer_adm <- subset_samples(ps_nocancer, Material == "ADM")
+
+# Remove samples with missing ABX status
+ps_nocancer_adm <- subset_samples(ps_nocancer_adm, !is.na(ABX))
+
+# Drop taxa with zero counts after subsetting
+ps_nocancer_adm <- prune_taxa(taxa_sums(ps_nocancer_adm) > 0, ps_nocancer_adm)
+
+ps_nocancer_adm
+```
+
+Before we proceed, it is good practice to confirm the groups we are comparing.
+
+```{r check_abx_groups}
+table(sample_data(ps_nocancer_adm)$ABX, useNA = "ifany")
+```
+
+
+## Step 3 — Beta diversity: does ABX shift community composition?
+
+Community-level comparisons ask whether samples cluster differently as a whole.
+
+We will:
+1. Visualize beta diversity using PCoA (Bray–Curtis)
+2. Test group differences using PERMANOVA (adonis2)
+3. Check a key assumption using betadisper (dispersion / variance)
+
+### Step 3A — PCoA visualization (Bray–Curtis)
+
+```{r pcoa_abx}
+# Ordination using Bray–Curtis
+ord_bray <- ordinate(ps_nocancer_adm, method = "PCoA", distance = "bray")
+
+# PCoA plot colored by ABX
+p_pcoa_abx <- plot_ordination(ps_nocancer_adm, ord_bray, type = "samples", color = "ABX") +
+  geom_point(size = 3.5, alpha = 0.75) +
+  stat_ellipse() +
+  theme_bw() +
+  labs(title = "Patients without cancer, grouped by ABX (TAPI)")
+
+p_pcoa_abx
+```
+
+How to read this plot:
+- Each point is a sample
+- Points closer together have more similar microbiome composition (Bray–Curtis)
+- Ellipses provide a visual summary of group clustering (not a formal test)
+
+### Step 3B — PERMANOVA (adonis2) and dispersion (betadisper)
+
+PERMANOVA asks:
+
+**Are the group centroids different in multivariate space?**
+
+However, PERMANOVA can also appear significant if groups differ in variability (dispersion).  
+`betadisper` checks that assumption:
+
+**Do groups have similar within-group spread?**
+
+```{r permanova_and_dispersion_abx}
+# Bray–Curtis distance matrix
+bray_nocancer_adm <- phyloseq::distance(ps_nocancer_adm, method = "bray")
+
+# Metadata table aligned to the distance matrix
+meta_nocancer_adm <- as.data.frame(sample_data(ps_nocancer_adm), check.names = FALSE)
+class(meta_nocancer_adm) <- "data.frame"
+meta_nocancer_adm$ABX <- droplevels(as.factor(meta_nocancer_adm$ABX))
+
+# Align metadata order to the distance object
+meta_nocancer_adm <- meta_nocancer_adm[labels(bray_nocancer_adm), , drop = FALSE]
+stopifnot(identical(rownames(meta_nocancer_adm), labels(bray_nocancer_adm)))
+
+# PERMANOVA (centroid differences)
+adon_res <- vegan::adonis2(bray_nocancer_adm ~ ABX, data = meta_nocancer_adm, permutations = 999)
+cat("\n=== PERMANOVA (adonis2): Bray–Curtis ~ ABX ===\n")
+adon_res
+
+# Dispersion test (variance differences)
+bd <- vegan::betadisper(bray_nocancer_adm, group = meta_nocancer_adm$ABX)
+cat("\n=== betadisper: permutation test ===\n")
+permutest(bd, permutations = 999)
+```
+
+**Interpretation guide:**
+- If PERMANOVA p-value is small (e.g., < 0.05), that suggests composition differs by ABX.
+- If betadisper is also significant, interpret PERMANOVA cautiously (differences may be driven by dispersion, not centroids).
+
+### Step 3C — Visualize dispersion by group
+
+```{r betadisper_plot}
+boxplot(
+  bd,
+  main = "Dispersion by ABX (Bray–Curtis)",
+  xlab = "ABX (TAPI)",
+  ylab = "Distance to group centroid"
+)
+```
+
+
+## Step 4 — Alpha diversity: does ABX change within-sample diversity?
+
+Alpha diversity depends on sequencing depth, so we will rarefy to a common depth for alpha diversity only.
+
+### Step 4A — Choose a rarefaction depth
+
+In this notebook we rarefy to the minimum read depth within our subset to keep all samples.  
+In many analyses, you may instead choose a threshold and drop low-depth samples.
+
+```{r choose_rarefaction_depth}
+min_reads <- min(sample_sums(ps_nocancer_adm))
+min_reads
+```
+
+### Step 4B — Rarefy (alpha diversity only)
+
+Rarefaction is stochastic. We set a seed to make the workshop results reproducible.
+
+```{r rarefy_alpha_only_abx}
+set.seed(1234)
+
+ps_nocancer_adm_rarefied <- rarefy_even_depth(
+  ps_nocancer_adm,
+  sample.size = min_reads,
+  rngseed = 1234,
+  replace = FALSE,
+  trimOTUs = TRUE,
+  verbose = FALSE
+)
+
+# After rarefaction, all samples should have the same total reads
+summary(sample_sums(ps_nocancer_adm_rarefied))
+```
+
+### Step 4C — Plot alpha diversity by ABX
+
+```{r plot_alpha_diversity_abx}
+plot_richness(
+  ps_nocancer_adm_rarefied,
+  x = "ABX",
+  measures = c("Observed", "Shannon", "InvSimpson")
+) +
+  geom_boxplot(aes(group = ABX), alpha = 0.25, outlier.alpha = 0.25) +
+  theme_bw() +
+  labs(title = paste0("Alpha diversity by ABX (rarefied to ", min_reads, " reads/sample)"))
+```
+
+### Step 4D — Statistical tests for alpha diversity
+
+Here we use Wilcoxon rank-sum tests (non-parametric) for each metric.
+
+```{r alpha_diversity_tests_abx}
+alpha_tbl <- estimate_richness(
+  ps_nocancer_adm_rarefied,
+  measures = c("Observed", "Shannon", "InvSimpson")
+)
+
+group_vec <- sample_data(ps_nocancer_adm_rarefied)$ABX
+
+# Observed richness
+pairwise.wilcox.test(alpha_tbl$Observed, group_vec, alternative = "two.sided")
+
+# Shannon
+pairwise.wilcox.test(alpha_tbl$Shannon, group_vec, alternative = "two.sided")
+
+# Inverse Simpson
+pairwise.wilcox.test(alpha_tbl$InvSimpson, group_vec, alternative = "two.sided")
+```
+
+
+## Step 5 — Differential abundance: which taxa differ by ABX?
+
+Community-level tests tell us that samples differ. Differential abundance asks:
+
+**Which taxa are changing between ABX groups?**
+
+Because microbiome data are compositional, we use ALDEx2, which:
+- performs a CLR transformation,
+- models sampling uncertainty,
+- reports both statistical significance and effect size.
+
+
+### Step 5A — Prepare count matrix for ALDEx2
+
+ALDEx2 expects a taxa x samples count matrix and a group vector.
+
+```{r aldex2_inputs}
+# Extract counts as a matrix
+otu_counts <- as(otu_table(ps_nocancer_adm), "matrix")
+if (!taxa_are_rows(ps_nocancer)) {
+  otu_counts <- t(otu_counts)
+}
+
+# Group vector (ABX status), aligned to columns of otu_counts
+group_abx <- as.character(sample_data(ps_nocancer_adm)$ABX)
+names(group_abx) <- sample_names(ps_nocancer_adm)
+
+# Ensure alignment
+otu_counts <- otu_counts[, names(group_abx), drop = FALSE]
+stopifnot(identical(colnames(otu_counts), names(group_abx)))
+
+table(group_abx)
+dim(otu_counts)
+```
+
+
+### Step 5B — Run ALDEx2 (CLR + tests + effect size)
+
+```{r aldex2_run}
+set.seed(1234)
+
+# CLR transform
+x <- ALDEx2::aldex.clr(otu_counts, group_abx)
+
+# Wilcoxon rank-sum test (and Welch's t-test also computed)
+x_tt <- ALDEx2::aldex.ttest(x, paired.test = FALSE, verbose = FALSE)
+
+# Effect sizes
+x_effect <- ALDEx2::aldex.effect(x, CI = TRUE, verbose = FALSE)
+
+# Combine outputs
+aldex_out <- data.frame(x_tt, x_effect)
+
+# Filter to significant taxa (raw p-value threshold shown for teaching)
+sig_aldex <- aldex_out %>%
+  tibble::rownames_to_column(var = "OTU") %>%
+  dplyr::filter(wi.ep <= 0.05) %>%
+  dplyr::select(OTU, effect, wi.ep, wi.eBH, diff.btw) %>%
+  as.data.frame()
+
+nrow(sig_aldex)
+head(sig_aldex)
+```
+
+> **Note:** In practice, you will often filter using adjusted p-values (e.g., `wi.eBH`) and interpret effect sizes alongside significance.
+
+### Step 5C — Add taxonomy annotations to significant taxa
+
+```{r aldex2_add_taxonomy}
+tax_tbl <- as.data.frame(tax_table(ps_nocancer_adm), stringsAsFactors = FALSE)
+
+sig_tax <- sig_aldex %>%
+  dplyr::left_join(
+    tax_tbl %>% tibble::rownames_to_column("OTU"),
+    by = "OTU"
+  )
+
+head(sig_tax)
+```
+
+
+## Step 6 — Visualize differential taxa
+
+
+### Step 6A — Effect direction plot (diff.btw)
+
+`diff.btw` is the difference between CLR means (group-wise).  
+
+Positive values indicate higher abundance in one group and negative values the other (depending on group coding).
+
+```{r aldex2_effect_plot}
+if (nrow(sig_tax) == 0) {
+  message("No taxa met the significance threshold (wi.ep <= 0.05). Try a different cutoff or use wi.eBH.")
+} else {
+  sig_tax$OTU <- factor(sig_tax$OTU, levels = sig_tax$OTU[order(sig_tax$diff.btw)])
+
+  ggplot(sig_tax, aes(x = diff.btw, y = OTU, fill = genus)) +
+    geom_col(width = 0.7) +
+    geom_vline(xintercept = 0, linetype = "dashed") +
+    theme_classic() +
+    labs(
+      title = "Differential taxa by ABX (ALDEx2)",
+      x = "CLR mean difference (diff.btw)",
+      y = "OTU"
+    ) +
+    theme(axis.text.y = element_text(size = 7))
+}
+```
+
+
+## Step 7 — Heatmap of differential taxa (relative abundance)
+
+This heatmap shows the relative abundance patterns of significant taxa across samples.
+
+> **Important note:** We use Euclidean distance here only for visualization.
+This does not replace compositional distance metrics (like Bray–Curtis) used earlier.
+
+
+### Step 7A — Build relative abundance matrix
+
+```{r heatmap_build_relative_abundance}
+# Relative abundance transform (within this subset only)
+ps_nocancer_adm_rel <- transform_sample_counts(ps_nocancer_adm, function(x) x / sum(x))
+
+otu_rel <- as(otu_table(ps_nocancer_adm_rel), "matrix")
+if (!taxa_are_rows(ps_nocancer_adm_rel)) {
+  otu_rel <- t(otu_rel)
+}
+
+# Subset to significant taxa (if any)
+diff_otus <- sig_aldex$OTU
+
+if (length(diff_otus) == 0) {
+  message("No significant taxa to plot in a heatmap (wi.ep <= 0.05).")
+} else {
+  otu_rel_sig <- otu_rel[rownames(otu_rel) %in% diff_otus, , drop = FALSE]
+  dim(otu_rel_sig)
+}
+```
+
+
+### Step 7B — Create heatmap with ABX annotation
+
+```{r heatmap_plot}
+if (length(diff_otus) > 0) {
+  hm_meta <- as.data.frame(sample_data(ps_nocancer_adm_rel), check.names = FALSE)
+  annotation <- data.frame(ABX = hm_meta$ABX)
+  rownames(annotation) <- rownames(hm_meta)
+
+  # Simple ABX color mapping
+  abx_cols <- c("Yes" = "black", "No" = "white")
+  anno_colors <- list(ABX = abx_cols)
+
+  pheatmap::pheatmap(
+    otu_rel_sig,
+    cluster_rows = FALSE,
+    show_colnames = FALSE,
+    clustering_distance_cols = "euclidean",
+    border_color = NA,
+    annotation_col = annotation,
+    annotation_colors = anno_colors,
+    main = "Relative abundance heatmap: differential taxa (ABX)"
+  )
+}
+```
+
+
+# Summary
+
+In this notebook, we:
+
+- Defined a clinically meaningful comparison (ABX vs no ABX in patients without cancer)
+- Tested for community-level differences using beta diversity (PCoA + PERMANOVA)
+- Checked dispersion (betadisper) to interpret PERMANOVA results appropriately
+- Evaluated within-sample diversity using rarefied alpha diversity metrics
+- Identified candidate taxa associated with ABX using ALDEx2 (CLR + effect sizes)
+- Visualized differential taxa using effect-direction plots and a relative abundance heatmap
+
+Together, these steps demonstrate how microbiome data can be .linked to metadata to generate biologically and clinically interpretable hypotheses. This concludes our workshop. We hope you have found th workshop informative and useful. 

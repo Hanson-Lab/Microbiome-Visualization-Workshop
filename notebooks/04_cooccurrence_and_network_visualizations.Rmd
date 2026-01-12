@@ -1,0 +1,417 @@
+---
+title: "04 – Co-Occurrence and Network Visualizations (ADM + No Cancer, stratified by ABX)"
+author: "Blake Hanson, PhD"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r 04_setup, include=FALSE}
+# Global chunk options
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = TRUE,
+  warning = FALSE
+)
+
+# Knit from project root so relative paths work
+knitr::opts_knit$set(root.dir = "..")
+```
+
+```{r packages_for_knit, include=FALSE}
+# Package setup (used for knitting only)
+# (Students do NOT need to run this chunk interactively)
+source("scripts/00_install_packages.R")
+```
+
+# Goal for this section
+
+In this notebook, we move beyond **sample-level comparisons** and explore **relationships between taxa** using **co-occurrence networks**.
+
+Network analyses are great exploratory analyses and visualizations, but are notoriously uninterpretable. To make these networks interpretable, we will analyze the same clinical subset used in Figures 5 and 6 of our [publication](https://journals.asm.org/doi/10.1128/spectrum.01430-23?url_ver=Z39.88-2003&rfr_id=ori:rid:crossref.org&rfr_dat=cr_pub%20%200pubmed):
+
+To get to the analyzed dataset for those figures, we will subset our phyloseq object to:
+- Material = ADM
+- CancerSideSample = No
+- Compare networks by **ABX (TAPI): Yes vs No**
+
+By the end of this notebook you will be able to:
+
+1. Explain what microbial co-occurrence *does* and *does not* mean  
+2. Subset a phyloseq object using metadata (ADM + no cancer)  
+3. Build separate co-occurrence networks for ABX=Yes vs ABX=No  
+4. Filter taxa and edges to reduce noise and false positives  
+5. Visualize networks and interpret them responsibly  
+
+> **Important context:** co-occurrence networks are **exploratory and hypothesis-generating**.  
+> Correlation ≠ interaction ≠ causation.
+
+
+# Background: what is co-occurrence?
+
+Before writing code, it is critical to understand what we are measuring.
+
+### What co-occurrence *is*
+- A statistical association between taxa across samples  
+- Often summarized as a correlation (positive or negative)  
+- A way to describe patterns of co-variation
+
+### What co-occurrence is *not*
+- Proof that taxa interact directly  
+- Evidence of competition or cooperation  
+- Causal inference  
+
+> Two taxa can appear correlated because they share niches, respond to the same unmeasured factor, or because microbiome data are **compositional** (constant-sum constraints can induce correlations).
+
+> **Tip for Posit Cloud:** Run each code chunk in order using the green “Run” button.
+
+
+## Step 1 — Load the phyloseq object
+
+This notebook assumes you have created a `phyloseq_object` in **Notebook 01**.
+
+```{r load_phyloseq_object, include=FALSE}
+suppressMessages(source("scripts/01_loading_data_and_preprocessing.R"))
+
+stopifnot(exists("phyloseq_object"))
+stopifnot(inherits(phyloseq_object, "phyloseq"))
+
+phyloseq_object
+```
+
+
+## Step 2 — Subset to the clinical comparison (ADM + no cancer) and check ABX groups
+
+We will restrict to:
+
+- `CancerSideSample == "No"`
+- `Material == "ADM"`
+- non-missing `ABX`
+
+```{r subset_adm_no_cancer}
+# Subset to patients without cancer
+ps_nocancer <- subset_samples(phyloseq_object, CancerSideSample == "No")
+ps_nocancer_adm <- subset_samples(ps_nocancer, Material == "ADM")
+
+# Remove samples with missing ABX status
+ps_nocancer_adm <- subset_samples(ps_nocancer_adm, !is.na(ABX))
+
+# Drop taxa with zero counts after subsetting
+ps_nocancer_adm <- prune_taxa(taxa_sums(ps_nocancer_adm) > 0, ps_nocancer_adm)
+
+ps_nocancer_adm
+```
+
+Before building networks, confirm the number of samples per ABX group. Based on the design of the study, this should be 16 total ADM samples and 8 samples per ABX group.
+
+```{r check_abx_groups}
+table(sample_data(ps_nocancer_adm)$ABX, useNA = "ifany")
+```
+
+> Note for other analyses: If one group has very few samples, correlation estimates will be unstable and networks may look sparse or noisy.
+
+
+## Step 3 — Split into ABX=No and ABX=Yes phyloseq objects
+
+Next, we will build **two** co-occurrence networks:
+- one using only ABX=No samples
+- one using only ABX=Yes samples
+
+```{r split_by_abx}
+# Subset the phyloseq object into the two objects that represent the two ABX categories
+ps_abx_no  <- subset_samples(ps_nocancer_adm, ABX == "No")
+ps_abx_yes <- subset_samples(ps_nocancer_adm, ABX == "Yes")
+
+# Drop taxa that become all-zero within each group
+ps_abx_no  <- prune_taxa(taxa_sums(ps_abx_no)  > 0, ps_abx_no)
+ps_abx_yes <- prune_taxa(taxa_sums(ps_abx_yes) > 0, ps_abx_yes)
+
+# Let's look at the summary data for our two new phyloseq objects
+ps_abx_no
+ps_abx_yes
+```
+
+
+## Step 4 — Prepare data for correlation analysis (relative abundance + prevalence filter)
+
+Correlation methods expect a samples × taxa matrix.
+
+We will:
+1. Convert our count table to relative abundance (within each ABX group)
+2. Filter out rare taxa by prevalence (to reduce spurious correlations)
+
+Why prevalence filtering matters:
+- Rare taxa appear in very few samples
+- That sparsity can inflate correlation estimates and produce dense/noisy networks
+
+```{r network_parameters}
+# Workshop defaults (tune for your dataset)
+min_prev_prop <- 0.20   # keep taxa present in at least 20% of samples (within each ABX group)
+rho_threshold <- 0.60   # keep correlations with |rho| >= this value
+
+# Let's print the values we have set to make sure everything is stored appropriately and recorded
+print(paste("The minimum prevalence proportion is:", min_prev_prop))
+print(paste("The minimum rho threshold is:", rho_threshold))
+```
+
+Next, we are going to build a helper function that we will run for both phyloseq objects to build our correlation networks. 
+
+```{r helper_function_build_network}
+# Helper function to: phyloseq -> filtered sample x taxa matrix (relative abundance) -> correlation edge list -> igraph
+build_cooccurrence_network <- function(ps, group_label, min_prev_prop = 0.20, rho_threshold = 0.60) {
+
+  # 1) Transform to relative abundance (each sample sums to 1)
+  ps_rel <- transform_sample_counts(ps, function(x) x / sum(x))
+
+  # 2) Extract OTU table matrix
+  otu_mat <- as(otu_table(ps_rel), "matrix")
+
+  # Ensure samples are rows and taxa are columns
+  if (taxa_are_rows(ps_rel)) {
+    otu_mat <- t(otu_mat)
+  }
+
+  # Quick standard check to make sure we have enough samples and taxa for our assessment (we do, but this is helpful for your own work)
+  if (nrow(otu_mat) < 4) {
+    stop("Group '", group_label, "' has <4 samples. Correlations will not be stable.")
+  }
+  if (ncol(otu_mat) < 3) {
+    stop("Group '", group_label, "' has <3 taxa after subsetting. Network will be empty.")
+  }
+
+  # 3) Prevalence filtering
+  min_prevalence <- ceiling(min_prev_prop * nrow(otu_mat))
+  taxa_prev <- colSums(otu_mat > 0)
+  keep_taxa <- names(taxa_prev[taxa_prev >= min_prevalence])
+
+  otu_filt <- otu_mat[, keep_taxa, drop = FALSE]
+
+  # 4) Correlation matrix (Spearman)
+  cor_mat <- suppressWarnings(cor(otu_filt, method = "spearman"))
+
+  # 5) Convert to edge list
+  cor_df <- as.data.frame(cor_mat) %>%
+    rownames_to_column("Taxon1") %>%
+    pivot_longer(-Taxon1, names_to = "Taxon2", values_to = "rho") %>%
+    filter(Taxon1 < Taxon2) %>%                           # keep each pair once
+    filter(!is.na(rho)) %>%
+    filter(abs(rho) >= rho_threshold)
+
+  # If no edges survive, return an empty graph with nodes
+  if (nrow(cor_df) == 0) {
+    g <- make_empty_graph(n = ncol(otu_filt), directed = FALSE)
+    V(g)$name <- colnames(otu_filt)
+    V(g)$group <- group_label
+    return(list(graph = g, edges = cor_df, otu_filt = otu_filt))
+  }
+
+  # 6) Build graph
+  g <- graph_from_data_frame(cor_df, directed = FALSE, vertices = data.frame(name = colnames(otu_filt)))
+
+  # Add attributes
+  E(g)$sign <- ifelse(E(g)$rho > 0, "positive", "negative")
+  V(g)$group <- group_label
+
+  return(list(graph = g, edges = cor_df, otu_filt = otu_filt))
+}
+```
+
+Now we build the networks for each ABX group.
+
+```{r build_networks_by_abx}
+# Build the co-occurrence networks
+net_no  <- build_cooccurrence_network(ps_abx_no,  group_label = "ABX = No",  min_prev_prop = min_prev_prop, rho_threshold = rho_threshold)
+net_yes <- build_cooccurrence_network(ps_abx_yes, group_label = "ABX = Yes", min_prev_prop = min_prev_prop, rho_threshold = rho_threshold)
+
+# Print the summary information on the networks
+net_no$graph
+net_yes$graph
+```
+
+
+## Step 5 — Add taxonomy labels (optional but recommended)
+
+OTU IDs are unique but not very interpretable.
+
+Here we build a simple node label using Genus when available:
+- `Genus` if present
+- otherwise fall back to the OTU/Taxon ID
+
+```{r add_taxonomy_labels}
+# Extract taxonomy table from the parent subset (ADM + no cancer)
+tax_tbl <- as.data.frame(tax_table(ps_nocancer_adm), stringsAsFactors = FALSE)
+
+make_node_labels <- function(g, tax_tbl) {
+  taxa_ids <- V(g)$name
+
+  # Safe lookup for genus (some datasets use lowercase "genus")
+  genus <- rep(NA_character_, length(taxa_ids))
+  if ("genus" %in% colnames(tax_tbl)) {
+    genus <- as.character(tax_tbl[taxa_ids, "genus"])
+  } else if ("Genus" %in% colnames(tax_tbl)) {
+    genus <- as.character(tax_tbl[taxa_ids, "Genus"])
+  }
+
+  genus_clean <- ifelse(is.na(genus) | genus == "" | genus %in% c("NA","N/A","unclassified"), NA, genus)
+  label <- ifelse(is.na(genus_clean), taxa_ids, paste0(taxa_ids, " – ", genus_clean))
+
+  V(g)$label <- label
+  g
+}
+
+net_no$graph  <- make_node_labels(net_no$graph, tax_tbl)
+net_yes$graph <- make_node_labels(net_yes$graph, tax_tbl)
+
+# Quick peek
+head(V(net_no$graph)$label)
+```
+
+
+## Step 6 — Visualize the ABX-specific networks
+
+We will plot the **ABX = No** and **ABX = Yes** networks side-by-side so we can compare:
+
+- number of nodes and edges
+- whether associations are mostly positive or negative
+- which taxa appear highly connected (potential "hubs")
+
+> **Reminder:** Differences in network appearance can reflect biology *or* differences in sample size, sparsity, and filtering. Treat these as exploratory visuals.
+
+```{r plot_networks_side_by_side, fig.width=12, fig.height=6}
+set.seed(1234)
+
+# Generate the network plot. If no edges remain after filtering, plotting will fail. Instead, show a clear message explaining this.
+plot_one_network <- function(g, main_title) {
+  if (ecount(g) == 0) {
+    plot.new()
+    title(main_title)
+    text(0.5, 0.5, "No edges passed filtering.\nTry lowering rho_threshold or min_prev_prop.", cex = 0.9)
+    return(invisible(NULL))
+  }
+
+  # Compute a force-directed layout (Fruchterman–Reingold). This places highly connected nodes closer together.
+  lay <- layout_with_fr(g)
+
+  # Plot the network
+  plot(
+    g,
+    layout = lay,
+    vertex.size = 6,
+    vertex.label = V(g)$label,
+    vertex.label.cex = 0.55,
+    vertex.label.dist = 0.2,
+    edge.width = pmax(1, abs(E(g)$rho) * 2),
+    edge.color = ifelse(E(g)$rho > 0, "steelblue", "tomato"),
+    main = main_title
+  )
+}
+
+# We use a 1x2 layout so that ABX = No and ABX = Yes networks can be compared visually.
+par(mfrow = c(1, 2), mar = c(1, 1, 3, 1))
+plot_one_network(net_no$graph,  "Co-occurrence network (ADM + No cancer): ABX = No")
+plot_one_network(net_yes$graph, "Co-occurrence network (ADM + No cancer): ABX = Yes")
+par(mfrow = c(1, 1))
+```
+
+
+## Step 7 — Compare networks with simple summary statistics
+
+To help interpret co-occurrence networks, it is helpful to quantify their overall structure using simple summary metrics. Two commonly used metrics are density and transitivity:
+
+**Network density** is:
+- how connected a network is overall
+- calculated as the proportion of observed edges relative to the maximum number of possible edges in the network.
+
+Density ranges from 0 to 1:
+- Density ≈ 0 is a very sparse network (few taxon–taxon associations detected)
+- Density ≈ 1 is a very dense network (many taxa connected to many others)
+
+Interpretation in microbiome networks:
+- Higher density suggests widespread co-variation among taxa
+- Lower density suggests more isolated or specialized associations
+- Density is highly sensitive to filtering thresholds (prevalence cutoffs, correlation cutoffs)
+
+> Density does not indicate interaction strength or biological importance—only how many associations remain after filtering.
+
+**Transitivity* is a global clustering coefficient that measures: 
+- the tendency of nodes to form closed triplets, or “triangles.”
+
+This means it is asking *If taxon A is correlated with taxon B, and taxon B is correlated with taxon C, how often is taxon A also correlated with taxon C?*
+
+Like density, transitivity ranges from 0 to 1:
+- Low transitivity (≈ 0) indicates associations are mostly linear or chain-like
+- High transitivity (≈ 1) indicates taxa tend to form tightly connected clusters
+
+Interpretation in microbiome networks:
+- High transitivity may indicate groups of taxa that consistently co-vary together
+- These clusters can reflect shared ecological niches or common responses to environmental or host factors
+- Transitivity is often interpreted as a measure of network modularity or cohesion
+
+As with density, transitivity is descriptive and exploratory—it does not imply causation or direct interaction.
+
+These are not formal tests, but they help quantify differences you can see by eye.
+
+```{r network_summary_stats}
+# Create summary statistics (density and transitivity) for the two networks. 
+summarize_network <- function(g) {
+  data.frame(
+    nodes = vcount(g),
+    edges = ecount(g),
+    density = edge_density(g, loops = FALSE),
+    transitivity = transitivity(g, type = "global", isolates = "zero"),
+    stringsAsFactors = FALSE
+  )
+}
+
+# Print the two summaries. 
+rbind(
+  `ABX = No`  = summarize_network(net_no$graph),
+  `ABX = Yes` = summarize_network(net_yes$graph)
+)
+```
+
+You can also list the most connected taxa (“hubs”) in each network.
+
+```{r top_hubs_by_degree}
+top_hubs <- function(g, n = 10) {
+  if (vcount(g) == 0) return(NULL)
+  deg <- degree(g, mode = "all")
+  tibble(
+    TaxonID = names(deg),
+    Degree = as.integer(deg),
+    Label = V(g)$label
+  ) %>%
+    arrange(desc(Degree)) %>%
+    slice_head(n = min(n, nrow(.)))
+}
+
+top_hubs(net_no$graph, n = 10)
+top_hubs(net_yes$graph, n = 10)
+```
+
+
+## Interpreting co-occurrence networks responsibly
+
+### What you *can* say
+- Which taxa tend to co-vary across samples within a group  
+- Whether associations are mostly positive or negative  
+- Which taxa are highly connected (candidate “hubs”)  
+
+### What you *cannot* say
+- Direction of interaction  
+- Mechanistic relationships  
+- Clinical causality  
+
+> Networks summarize patterns, not mechanisms.
+
+
+# Summary
+
+In this notebook, we:
+
+- Subset the dataset to a clinically meaningful comparison (**ADM**, **no cancer**)  
+- Built **ABX-stratified** co-occurrence networks (ABX=No vs ABX=Yes)  
+- Filtered taxa by prevalence and edges by correlation threshold to reduce noise  
+- Visualized networks and summarized network structure and hub taxa  
+- Emphasized responsible interpretation (exploratory, hypothesis-generating)
+
+In the next section, we will build on these ideas and show additional ways to **link microbiome patterns to metadata**, including constrained ordination and correlation-based visual summaries.

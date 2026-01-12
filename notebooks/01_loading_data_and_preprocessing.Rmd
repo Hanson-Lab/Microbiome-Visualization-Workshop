@@ -1,0 +1,199 @@
+---
+title: "01 – Loading Data and Preprocessing"
+author: "Blake Hanson, PhD"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+```{r 01_setup, include=FALSE}
+# Global chunk options for the workshop
+knitr::opts_chunk$set(
+  echo = TRUE,       # show code
+  message = TRUE,    # show messages (helpful for learning)
+  warning = FALSE    # keep output clean; we can turn warnings on if needed
+)  
+
+# Knit from the project root so relative paths like "data/..." work
+knitr::opts_knit$set(root.dir = "..")
+```
+
+```{r packages_for_knit, include=FALSE}
+# Source package installation/loading script (used for knitting only)
+source("scripts/00_install_packages.R")
+```
+
+# Goal for this section
+
+In this notebook, we will load the workshop data files and combine them into a single **phyloseq object** for analysis.
+
+By the end of this notebook you will be able to:
+
+1. Load the workshop data tables into R
+2. Combine them into a single **phyloseq object**
+3. Verify the phyloseq object is correctly formatted
+
+> **Tip for Posit Cloud:** Run each code chunk in order using the green “Run” button.
+
+
+## Step 1 — Confirm you are in the project root
+
+Because we are working from a GitHub repository (and running in Posit Cloud), we rely on relative file paths rather than absolute paths (e.g., ~/Documents/...).
+
+Relative paths only work if your working directory is set to the project root.
+
+If this is not the case, R will not be able to find the input data files.
+
+This chunk checks that the data/ folder exists in your current working directory and provides a helpful error message if it does not.
+
+```{r check_data_repository}
+# If/else statement that checks for the data/ folder and provides an informative error if not found. 
+# Indicates the folder is found if present.
+if (!dir.exists("data")) {
+stop(
+"The 'data/' directory was not found.\n",
+"Make sure you opened the project (not just the script)."
+)
+} else {
+message("Data directory found")
+}
+```
+
+
+## Step 2 — Define paths to the workshop files
+
+Rather than typing file paths repeatedly, we store them as named variables.
+
+This improves readability, reduces errors, and makes scripts easier to modify or reuse.
+
+> **Tip:** This is a good coding habit because:
+>
+> - It makes code more readable
+> - It allows easy switching between relative and absolute paths if needed
+> - It supports reproducible research and code sharing
+
+```{r data_paths}
+# Set a variable including the name of the folder that includes the data (checked for above)
+data_dir <- "data"
+
+# Path for the OTU file
+otu_path      <- file.path(data_dir, "otu_table.csv")
+# Path for the taxonomy file
+taxonomy_path <- file.path(data_dir, "taxonomy_table.csv")
+# Path for the metadata file
+metadata_path <- file.path(data_dir, "metadata_table.csv")
+```
+
+To confirm that these variables contain the paths we expect, we print them to the console.
+
+> **Tip:** Printing paths is another good habit — it helps with debugging, file tracking, and transparency.
+
+```{r print_paths}
+# Print the OTU file path
+message("The OTU file path is: ", otu_path)
+# Print the taxonomy file path
+message("The taxonomy file path is: ", taxonomy_path)
+# Print the metadata file path
+message("The metadata file path is: ", metadata_path)
+```
+
+
+## Step 3 — Load the files into the R environment 
+
+We now load the three core input tables used in microbiome analyses:
+
+- OTU table: raw read/amplicon counts (taxa x samples)
+- Taxonomy table: taxonomic labels for each OTU
+- Metadata table: sample-level information used for grouping and comparisons
+
+These tables are read from CSV files and stored in R as data frames. 
+
+```{r load_data}
+### Loading the dataset into R
+# OTU table - this data is samples as columns and OTUs as rows
+otu_df <- read.csv(otu_path, header = TRUE, row.names = 1, check.names = FALSE, stringsAsFactors = FALSE)
+# Taxonomy table - the taxonomy for each OTU
+taxonomy_df <- read.csv(taxonomy_path, header = TRUE, row.names = 1, check.names = FALSE, stringsAsFactors = FALSE)
+# Metadata table - the metadata by sample
+metadata_df <- read.csv(metadata_path, header = TRUE, row.names = 1, check.names = FALSE, stringsAsFactors = FALSE)
+```
+
+
+## Step 4 — Data formatting 
+
+The phyloseq package expects data to be stored in specific object types rather than plain data frames.
+
+In this step, we convert each table into the appropriate phyloseq format:
+
+- otu_table() for count data
+- tax_table() for taxonomy
+- sample_data() for metadata
+
+```{r data_formatting}
+## Format each data frame for phyloseq
+# Format OTU data frame
+phyloseq_otu  <- otu_table(as.matrix(otu_df), taxa_are_rows = TRUE)
+# Convert taxonomy table into a matrix and format
+taxonomy_matrix <- as.matrix(taxonomy_df)
+phyloseq_taxonomy  <- tax_table(taxonomy_matrix)
+# Format metadata data frame
+phyloseq_metadata <- sample_data(metadata_df)
+```
+
+
+## Step 5 - Combine the formatted objects into a phyloseq object 
+
+phyloseq is designed to keep counts, taxonomy, and metadata synchronized.
+
+The core object types we just created are:
+
+- otu_table()
+- tax_table()
+- sample_data()
+
+We now combine them into a single phyloseq object, which will be used throughout the rest of the workshop.
+
+```{r create_phyloseq_object}
+# Combine the formatted objects into a phyloseq object
+phyloseq_object <- phyloseq(phyloseq_otu, phyloseq_taxonomy, phyloseq_metadata)
+```
+
+
+## Step 6 — Quick checks (what is inside the phyloseq object?)
+
+Before moving on, it’s important to verify that everything loaded correctly.
+
+We start by printing a summary of the phyloseq object.
+
+```{r check_phyloseq_object}
+phyloseq_object
+```
+Next, we inspect the first few rows of each component.
+
+```{r head_sample}
+head(sample_data(phyloseq_object))
+```
+
+```{r head_taxonomy}
+head(tax_table(phyloseq_object))
+```
+
+```{r head_otu}
+head(otu_table(phyloseq_object))
+```
+
+# Summary
+
+At this point you have a working `phyloseq_object` that contains:
+
+* OTU counts (`otu_table`)
+* taxonomy labels (`tax_table`)
+* sample metadata (`sample_data`)
+
+This object ensures that all data types remain aligned as we subset, transform, analyze, and visualize the microbiome data. 
+
+In the next notebook, we will use this object to:
+
+- Describe the microbiome using taxonomic summaries
+- Calculate alpha diversity
+- Generate figures that render in Posit Cloud

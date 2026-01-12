@@ -1,0 +1,381 @@
+---
+title: "03 – Comparing Samples: Beta Diversity and Ordination"
+author: "Blake Hanson, PhD"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+```{r 03_setup, include=FALSE}
+# Global chunk options for the workshop
+knitr::opts_chunk$set(
+  echo = TRUE,       # show code
+  message = TRUE,    # show messages (helpful for learning)
+  warning = FALSE    # keep output clean; we can turn warnings on if needed
+)
+
+# Knit from the project root so relative paths like "data/..." work
+knitr::opts_knit$set(root.dir = "..")
+```
+
+```{r packages_for_knit, include=FALSE}
+# Source package installation/loading script (used for knitting only)
+source("scripts/00_install_packages.R")
+```
+
+# Goal for this section
+
+In this notebook, we will focus on **between-sample (beta) diversity**—how microbiome community composition differs across samples.
+
+By the end of this notebook you will be able to:
+
+1. Explain what a beta diversity distance represents (and why choice matters)
+2. Compute Bray–Curtis distances from a phyloseq object
+3. Perform two common ordinations (PCoA and NMDS)
+4. Add metadata to ordination plots (grouping + confidence ellipses)
+5. Test for group differences using PERMANOVA (adonis2) and assess dispersion (betadisper)
+
+> **Tip for Posit Cloud:** Run each code chunk in order using the green “Run” button.
+
+---
+
+## Step 1 — Load the phyloseq object
+
+This notebook assumes you have already created a `phyloseq_object` in **Notebook 01** for our workshop data.
+
+If you are starting fresh (new session), run **Notebook 01** first.
+For knitting, we rebuild the phyloseq object here by re-running the same steps used in Notebook 01.
+
+- If you are continuing directly from Notebook 01 in the same session, you may already have it.
+- If you are starting a fresh R session or have restarted your Posit Cloud environment, we will build it by running the workshop loading script.
+
+```{r load_phyloseq_object, include=FALSE}
+# Build (or rebuild) the phyloseq object using the workshop script
+# This creates an object named: phyloseq_object
+suppressMessages(source("scripts/01_loading_data_and_preprocessing.R"))
+
+# Confirm the object exists and is the expected type
+stopifnot(exists("phyloseq_object"))
+stopifnot(inherits(phyloseq_object, "phyloseq"))
+
+phyloseq_object
+```
+
+---
+
+## Step 2 — Transform our phyloseq object to relative abundance
+
+A beta diversity method has two parts:
+
+1. **A distance metric** (e.g., Bray–Curtis, Jaccard, UniFrac)
+2. **A visualization or statistical test** (ordination plots, PERMANOVA)
+
+In this workshop we will use **Bray–Curtis** because:
+- it is widely used for community composition,
+- it works well with abundance data,
+- it is supported directly in phyloseq and vegan.
+
+Bray–Curtis is computed from abundances and is sensitive to differences in totals. While Bray–Curtis can be calculated on raw counts, it can be strongly influenced by library size differences between samples. Here we convert to relative abundance to reduce that effect. We are going to convert our data to relative abundance to minimize sequencing depth effects.
+
+Alternative approaches (not covered here) include transformations like Hellinger or CLR, depending on the question. Our lab often prefers CLR for compositional analyses, but we use relative abundance here for simplicity and because it integrates cleanly with Bray–Curtis + phyloseq workflows. 
+
+```{r transform_to_relative_abundance}
+# Transform counts to relative abundance (each sample sums to 1)
+phyloseq_object_rel <- transform_sample_counts(
+  phyloseq_object,
+  function(x) x / sum(x)
+)
+
+# Quick check: sample totals should be ~1 after transformation
+summary(sample_sums(phyloseq_object_rel))
+```
+
+
+## Step 3 — Compute a Bray–Curtis distance matrix
+
+Here we compute the Bray-Curtis distance matrix (a `dist` object), which is the input for both our ordination and statistical testing (PERMANOVA in this workshop). This dist object is outside of phyloseq, which helps us visualize what the data looks like here, and will be used for our statistics below. 
+
+```{r compute_bray_curtis_distance}
+# Bray–Curtis distance on relative abundance
+bray_dist <- phyloseq::distance(phyloseq_object_rel, method = "bray")
+
+# Let's look at the top of the Bray-Curtis distance matrix 
+str(bray_dist)
+```
+
+
+## Step 4 — Ordination with PCoA (Bray–Curtis)
+
+PCoA (Principal Coordinates Analysis) takes a distance matrix and places samples into a lower-dimensional space (usually 2D or 3D) so we can see patterns.
+
+In these plots:
+- each point is a sample
+- points closer together have more similar communities (by Bray–Curtis)
+- we can color points by a metadata variable to add further interpretability to the figure. We are coloring by Material here
+
+We are going to use our relative abundance phyloseq object for these steps and ordinations. 
+
+```{r pcoa_ordination}
+# Ordinate the phyloseq object to create the underlying PCoA data for our plot
+phyloseq_object.ord_pcoa <- ordinate(
+  phyloseq_object_rel,
+  method = "PCoA",
+  distance = bray_dist
+)
+
+# Generate a plot object for our PCoA using the plot_ordination phyloseq command
+p_pcoa <- plot_ordination(
+  phyloseq_object_rel,
+  phyloseq_object.ord_pcoa,
+  type = "samples",
+  color = "Material"
+) +
+  geom_point(alpha = 0.8, size = 2) +
+  labs(title = "PCoA (Bray–Curtis) colored by Material") +
+  theme_bw()
+
+# Print the plot
+p_pcoa
+```
+
+This visualization is very nice, but with so many points and six colors, it is difficult to see if each group overlaps in the full ordination space or if there are differences in the clustering by sample material. 
+
+### Add 95% confidence ellipses by group
+
+Ellipses are a useful visual summary of group separation. They do not replace formal testing, but they help show patterns and see where our clusters are. We are going to add in 95% confidence ellipses for each group. 
+
+```{r pcoa_with_ellipses}
+# Add in the ellipses to the p_pcoa plot we stored above
+p_pcoa_ellipse <- p_pcoa +
+  stat_ellipse(aes(group = Material), type = "t", level = 0.95, linetype = 2)
+
+# Print the plot
+p_pcoa_ellipse
+```
+
+## Step 5 — Ordination with NMDS (Bray–Curtis)
+
+NMDS (Non-metric Multidimensional Scaling) is another ordination that often works well for ecological community data. NMDS differs from PCoA in the following ways: 
+
+- NMDS is based on ranked distances (non-metric)
+- it uses an iterative optimization and can produce slightly different results unless you set a seed
+- you should always check stress (lower stress generally indicates a better representation). This is a goodness-of-fit statistic with lower values representing how well the plot reflects the underlying data dissimilarities. General interpretation is: <0.05 is excellent, <0.1 is good, <0.2 is fair/usable, and >0.2 suggests poor representation. These cutoffs are not rules though and may be misleading as larger datasets can have higher stress due to higher dimensionality. This statistic requires a nuanced, careful interpretation. 
+
+
+```{r nmds_ordination}
+# Setting our workshop seed 
+set.seed(1234)
+
+# Ordinate the phyloseq object to create the underlying NMDS data for our plot
+phyloseq_object.ord_nmds <- ordinate(
+  phyloseq_object_rel,
+  method = "NMDS",
+  distance = bray_dist,
+  trymax = 50
+)
+
+# Generate a plot object for our NMDS using the plot_ordination phyloseq command
+p_nmds <- plot_ordination(
+  phyloseq_object_rel,
+  phyloseq_object.ord_nmds,
+  type = "samples",
+  color = "Material"
+) +
+  geom_point(alpha = 0.8, size = 2) +
+  labs(title = "NMDS (Bray–Curtis) colored by Material") +
+  theme_bw()
+
+# Print the plot
+p_nmds
+```
+
+As with the PCoA plot, it can be helpful to visually summarize how samples cluster by group rather than focusing on individual points alone.
+
+To do this, we can add confidence ellipses around samples from the same group. These ellipses represent the multivariate spread of samples within each Material category and help us visually assess whether groups occupy distinct regions of ordination space.
+
+
+### Add 95% confidence ellipses to NMDS
+
+As before, these ellipses are intended as a visual aid and should not be interpreted as a formal statistical test of group differences.
+
+```{r nmds_with_ellipses}
+# Add in the ellipses to the p_nmds plot we stored above
+p_nmds_ellipse <- p_nmds +
+  stat_ellipse(aes(group = Material), type = "t", level = 0.95, linetype = 2)
+
+# Print the plot
+p_nmds_ellipse
+```
+
+
+## Step 6 — PERMANOVA (adonis2): do groups differ in community composition?
+
+PERMANOVA tests whether centroids of groups differ in multivariate space (based on the distance matrix).
+
+In plain language:
+> “Are samples from different Materials more different than you would expect by chance?”
+
+We need:
+- a distance matrix. Because our statistical package, vegan, doesn't accept phyloseq objects directly, we will use our bray_dist object. 
+- a metadata table aligned to the samples in that distance matrix
+
+```{r metadata_for_tests}
+# Create the metadata table for our statistical testing
+meta_for_tests <- as.data.frame(sample_data(phyloseq_object_rel))
+class(meta_for_tests) <- "data.frame"
+
+# Ensure Material is a factor
+meta_for_tests$Material <- as.factor(meta_for_tests$Material)
+
+# Align metadata row order to the Bray–Curtis distance matrix
+meta_for_tests <- meta_for_tests[labels(bray_dist), , drop = FALSE]
+stopifnot(identical(rownames(meta_for_tests), labels(bray_dist)))
+
+# Let's take a look at the top of the metadata table
+head(meta_for_tests)
+```
+
+```{r permanova_adonis2}
+# Create a dataframe of the PERMANOVA results
+adon_res <- vegan::adonis2(
+  bray_dist ~ Material,
+  data = meta_for_tests,
+  permutations = 999
+)
+
+cat("\n=== PERMANOVA (adonis2): Bray–Curtis ~ Material ===\n")
+adon_res
+```
+
+**How to interpret PERMANOVA output (quick guide):**
+- `Pr(>F)` is the permutation p-value (smaller suggests stronger evidence of group differences)
+- `R2` is the fraction of variation explained by the grouping variable (effect size)
+
+If the PERMANOVA p-value is small (e.g., < 0.05), that suggests community composition differs by Material. The R2 value gives the effect size (fraction of variation explained). In this dataset, the p-value is very small (often ~0.001 with 999 permutations), suggesting there is a difference in the centroid by material type. 
+
+
+## Step 7 — Check dispersion (betadisper): are groups equally variable?
+
+A key caveat: PERMANOVA can show significance because groups differ in their **dispersion** (variance), not just their centroids.
+
+`betadisper` is like a multivariate version of Levene’s test:
+
+> “Do groups have similar within-group spread (distance to centroid)?”
+
+```{r betadisper_test}
+# Create a dataframe of the betadisper results
+bd <- vegan::betadisper(bray_dist, group = meta_for_tests$Material)
+
+# Run a non-parametric permutational test on the betadisper results 
+cat("\n=== betadisper: permutation test ===\n")
+permutest(bd, permutations = 999)
+```
+
+We can see here that while our centroids are different, we fail to reject the hypothesis that the dispersion is different by material. 
+
+> Note: permutest() is non-parametric and non-deterministic because it uses permutation. The p-value for this test ranges from ~0.55-0.62 upon repeat runs.
+
+### Visualize dispersion by group
+
+We can also visualize the dispersion range for each material using the following command. 
+
+```{r betadisper_plot}
+boxplot(bd,
+  main = "Dispersion by Material (Bray–Curtis)",
+  xlab = "Material",
+  ylab = "Distance to centroid"
+)
+```
+
+Now that we know our centroids are different but our dispersion is not, let's dive a bit deeper into the taxa driving the ordination.
+
+## Step 8 — Identify taxa driving the ordination (biplot vectors)
+
+Ordination plots show how samples relate to each other, but they don’t directly tell us which taxa are contributing most to those differences.
+
+One useful exploratory approach is to add taxon vectors to the ordination. These vectors point in the direction of increasing abundance for a given taxon. Taxa with longer vectors tend to have a stronger association with the ordination axes.
+
+> Important interpretation note: These vectors are a visual diagnostic/hypothesis-generating tool, not a formal test of differential abundance. We will conduct that test later. 
+
+```{r taxa_vectors_setup}
+# How many taxa do we want to label on the biplot? For this plot, we are going to label the top 15 but this can be altered based upon the dataset and what we see in the visualization. 
+top_taxa_to_label <- 15
+top_taxa_to_label
+
+# Extract the OTU table from the *relative abundance* phyloseq object
+otu_mat <- as(otu_table(phyloseq_object_rel), "matrix")
+
+# Ensure rows are samples and columns are taxa (vegan expects samples as rows)
+if (taxa_are_rows(phyloseq_object_rel)) {
+  otu_mat <- t(otu_mat)
+}
+
+# Optional sanity checks
+dim(otu_mat)
+otu_mat[1:5, 1:5]
+
+```
+
+When taxon vectors are added to an ordination:
+
+- Direction indicates where that taxon increases in abundance across samples
+- Length reflects how strongly that taxon is associated with the ordination axes
+- Short or near-zero vectors indicate taxa that contribute little to the observed separation
+
+
+Importantly, vectors do not indicate causality or statistical significance. They simply help us identify which taxa are most aligned with the dominant gradients in the data.
+
+> In other words, vectors tell us “what is moving together with this ordination”, not “what is significantly different between groups.”
+
+
+```{r capscale_bray_biplot}
+# capscale(~1, distance="bray") is essentially a Bray–Curtis-based ordination
+# similar in spirit to PCoA, but it gives access to "species" scores for vectors.
+pr_clean <- vegan::capscale(otu_mat ~ 1, distance = "bray")
+
+# Base biplot (samples + taxa vectors). Many taxa have ~0 vector length, so warnings are common.
+suppressWarnings(biplot(pr_clean, main = "Bray–Curtis ordination with taxon vectors"))
+
+# Extract species scores (taxon vectors)
+tax_scores <- vegan::scores(pr_clean, display = "species")
+tax_scores <- tax_scores[complete.cases(tax_scores), , drop = FALSE]
+
+# Rank taxa by vector length and label only the top N
+tax_vec_len <- sqrt(rowSums(tax_scores^2))
+top_taxa <- names(sort(tax_vec_len, decreasing = TRUE))[1:min(top_taxa_to_label, length(tax_vec_len))]
+
+text(
+  x = tax_scores[top_taxa, 1],
+  y = tax_scores[top_taxa, 2],
+  labels = top_taxa,
+  col = "darkred",
+  cex = 0.8
+)
+```
+
+Note here that the orientation of the plot is diﬀerent than the one above, but the shape is the same. 
+
+The OTUs driving this ordination are:
+- OTU1 - Propionibacterium
+- OTU4 - Staphylococcus
+- OTU5 - Corynebacterium
+- OTU13 - Staphylococcus
+
+A few interpretation notes: 
+- The orientation of the plot is arbitrary. Ordination axes can rotate or flip without changing the underlying relationships. What matters is the relative position of samples and vectors, not their absolute orientation.
+- Vector length reflects contribution, not dominance. A taxon with a long vector is associated with the main gradients in community composition, but it may not be the most abundant taxon overall. 
+- This visualization complements PERMANOVA. PERMANOVA told us that community composition differs by Material. This biplot helps us ask which taxa may be contributing to those differences. 
+- This step is hypothesis generating. The taxa identified are candidates for targeted visualization and formal differential abundance testing (coming up).
+
+> This is a critical distinction: ordination vectors suggest where to look next — they do not provide statistical proof.
+
+# Summary
+
+In this notebook, we:
+
+- Computed Bray–Curtis distances (beta diversity) from relative abundance data
+- Visualized patterns using PCoA and NMDS, grouped by `Material`
+- Used PERMANOVA (adonis2) to test whether community composition differs by sample type
+- Checked dispersion (betadisper) to interpret PERMANOVA results appropriately
+
+In the next notebook, we will move beyond sample-level comparisons and focus on **co-occurrence and network visualizations**, where we explore potential associations between microbial taxa and begin linking microbiome features to sample metadata.
