@@ -11,7 +11,7 @@
 
 <meta name="author" content="Blake Hanson, PhD" />
 
-<meta name="date" content="2026-01-11" />
+<meta name="date" content="2026-01-12" />
 
 <title>04 – Co-Occurrence and Network Visualizations (ADM + No Cancer, stratified by ABX)</title>
 
@@ -353,7 +353,7 @@ display: none;
 <h1 class="title toc-ignore">04 – Co-Occurrence and Network
 Visualizations (ADM + No Cancer, stratified by ABX)</h1>
 <h4 class="author">Blake Hanson, PhD</h4>
-<h4 class="date">2026-01-11</h4>
+<h4 class="date">2026-01-12</h4>
 
 </div>
 
@@ -574,9 +574,9 @@ net_yes &lt;- build_cooccurrence_network(ps_abx_yes, group_label = &quot;ABX = Y
 
 # Print the summary information on the networks
 net_no$graph</code></pre>
-<pre><code>## IGRAPH 4b236c8 UN-- 49 104 -- 
+<pre><code>## IGRAPH d5de3fa UN-- 49 104 -- 
 ## + attr: name (v/c), group (v/c), rho (e/n), sign (e/c)
-## + edges from 4b236c8 (vertex names):
+## + edges from d5de3fa (vertex names):
 ##  [1] OTU13  --OTU371  OTU1   --OTU497  OTU1   --OTU297  OTU1629--OTU41  
 ##  [5] OTU17  --OTU52   OTU17  --OTU530  OTU17  --OTU28   OTU17  --OTU329 
 ##  [9] OTU17  --OTU863  OTU17  --OTU497  OTU1876--OTU5    OTU1876--OTU92  
@@ -587,9 +587,9 @@ net_no$graph</code></pre>
 ## [29] OTU41  --OTU23   OTU23  --OTU31   OTU23  --OTU32   OTU23  --OTU497 
 ## + ... omitted several edges</code></pre>
 <pre class="r"><code>net_yes$graph</code></pre>
-<pre><code>## IGRAPH b00c857 UN-- 62 236 -- 
+<pre><code>## IGRAPH 9050a8f UN-- 62 236 -- 
 ## + attr: name (v/c), group (v/c), rho (e/n), sign (e/c)
-## + edges from b00c857 (vertex names):
+## + edges from 9050a8f (vertex names):
 ##  [1] OTU13  --OTU304  OTU13  --OTU21   OTU13  --OTU18   OTU1   --OTU31  
 ##  [5] OTU1   --OTU11   OTU1   --OTU269  OTU1   --OTU307  OTU1   --OTU79  
 ##  [9] OTU17  --OTU1975 OTU17  --OTU52   OTU17  --OTU5    OTU17  --OTU23  

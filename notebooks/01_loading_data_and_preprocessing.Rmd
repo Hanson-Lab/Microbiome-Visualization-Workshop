@@ -15,12 +15,13 @@ knitr::opts_chunk$set(
 )  
 
 # Knit from the project root so relative paths like "data/..." work
-knitr::opts_knit$set(root.dir = "..")
+knitr::opts_knit$set(root.dir = ".")
 ```
 
 ```{r packages_for_knit, include=FALSE}
-# Source package installation/loading script (used for knitting only)
-source("scripts/00_install_packages.R")
+# Load these packages for this file
+library(knitr)
+library(phyloseq)
 ```
 
 # Goal for this section
@@ -49,7 +50,7 @@ This chunk checks that the data/ folder exists in your current working directory
 ```{r check_data_repository}
 # If/else statement that checks for the data/ folder and provides an informative error if not found. 
 # Indicates the folder is found if present.
-if (!dir.exists("data")) {
+if (!dir.exists("../data")) {
 stop(
 "The 'data/' directory was not found.\n",
 "Make sure you opened the project (not just the script)."
@@ -74,7 +75,7 @@ This improves readability, reduces errors, and makes scripts easier to modify or
 
 ```{r data_paths}
 # Set a variable including the name of the folder that includes the data (checked for above)
-data_dir <- "data"
+data_dir <- "../data"
 
 # Path for the OTU file
 otu_path      <- file.path(data_dir, "otu_table.csv")

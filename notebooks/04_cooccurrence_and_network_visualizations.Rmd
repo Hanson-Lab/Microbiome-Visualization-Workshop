@@ -18,9 +18,13 @@ knitr::opts_knit$set(root.dir = "..")
 ```
 
 ```{r packages_for_knit, include=FALSE}
-# Package setup (used for knitting only)
-# (Students do NOT need to run this chunk interactively)
-source("scripts/00_install_packages.R")
+# Load these packages for this file 
+library(knitr)
+library(phyloseq)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(igraph)
 ```
 
 # Goal for this section

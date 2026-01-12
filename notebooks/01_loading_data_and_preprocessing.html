@@ -11,7 +11,7 @@
 
 <meta name="author" content="Blake Hanson, PhD" />
 
-<meta name="date" content="2026-01-10" />
+<meta name="date" content="2026-01-12" />
 
 <title>01 – Loading Data and Preprocessing</title>
 
@@ -352,13 +352,15 @@ display: none;
 
 <h1 class="title toc-ignore">01 – Loading Data and Preprocessing</h1>
 <h4 class="author">Blake Hanson, PhD</h4>
-<h4 class="date">2026-01-10</h4>
+<h4 class="date">2026-01-12</h4>
 
 </div>
 
 
 <div id="goal-for-this-section" class="section level1">
 <h1>Goal for this section</h1>
+<p>In this notebook, we will load the workshop data files and combine
+them into a single <strong>phyloseq object</strong> for analysis.</p>
 <p>By the end of this notebook you will be able to:</p>
 <ol style="list-style-type: decimal">
 <li>Load the workshop data tables into R</li>
@@ -383,7 +385,7 @@ working directory and provides a helpful error message if it does
 not.</p>
 <pre class="r"><code># If/else statement that checks for the data/ folder and provides an informative error if not found. 
 # Indicates the folder is found if present.
-if (!dir.exists(&quot;data&quot;)) {
+if (!dir.exists(&quot;../data&quot;)) {
 stop(
 &quot;The &#39;data/&#39; directory was not found.\n&quot;,
 &quot;Make sure you opened the project (not just the script).&quot;
@@ -409,7 +411,7 @@ needed</li>
 </ul>
 </blockquote>
 <pre class="r"><code># Set a variable including the name of the folder that includes the data (checked for above)
-data_dir &lt;- &quot;data&quot;
+data_dir &lt;- &quot;../data&quot;
 
 # Path for the OTU file
 otu_path      &lt;- file.path(data_dir, &quot;otu_table.csv&quot;)
@@ -425,13 +427,13 @@ with debugging, file tracking, and transparency.</p>
 </blockquote>
 <pre class="r"><code># Print the OTU file path
 message(&quot;The OTU file path is: &quot;, otu_path)</code></pre>
-<pre><code>## The OTU file path is: data/otu_table.csv</code></pre>
+<pre><code>## The OTU file path is: ../data/otu_table.csv</code></pre>
 <pre class="r"><code># Print the taxonomy file path
 message(&quot;The taxonomy file path is: &quot;, taxonomy_path)</code></pre>
-<pre><code>## The taxonomy file path is: data/taxonomy_table.csv</code></pre>
+<pre><code>## The taxonomy file path is: ../data/taxonomy_table.csv</code></pre>
 <pre class="r"><code># Print the metadata file path
 message(&quot;The metadata file path is: &quot;, metadata_path)</code></pre>
-<pre><code>## The metadata file path is: data/metadata_table.csv</code></pre>
+<pre><code>## The metadata file path is: ../data/metadata_table.csv</code></pre>
 </div>
 <div id="step-3-load-the-files-into-the-r-environment" class="section level2">
 <h2>Step 3 — Load the files into the R environment</h2>
@@ -508,12 +510,12 @@ correctly.</p>
 ## NEPS_104        E-2       E         3      Right       TE           TE
 ## NEPS_106        E-1       E         1       Left   Breast     Breast_1
 ##          ExtractionBatch SpikeIn ABX CancerSide CancerSideSample
-## NEPS_100               3      No Yes      Right               No
-## NEPS_101               3      No Yes      Right              Yes
-## NEPS_102               3      No Yes      Right              Yes
-## NEPS_103               3      No Yes      Right              Yes
-## NEPS_104               3      No Yes      Right              Yes
-## NEPS_106               3      No Yes      Right               No</code></pre>
+## NEPS_100               3      No  No      Right               No
+## NEPS_101               3      No  No      Right              Yes
+## NEPS_102               3      No  No      Right              Yes
+## NEPS_103               3      No  No      Right              Yes
+## NEPS_104               3      No  No      Right              Yes
+## NEPS_106               3      No  No      Right               No</code></pre>
 <pre class="r"><code>head(tax_table(phyloseq_object))</code></pre>
 <pre><code>## Taxonomy Table:     [6 taxa by 6 taxonomic ranks]:
 ##         domain     phylum           class                 order            

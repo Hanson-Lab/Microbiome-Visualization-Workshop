@@ -18,9 +18,14 @@ knitr::opts_knit$set(root.dir = "..")
 ```
 
 ```{r packages_for_knit, include=FALSE}
-# Source package installation/loading script (used for knitting only)
-# (Students do NOT need to run this chunk interactively)
-source("scripts/00_install_packages.R")
+# Load these packages for this file
+library(vegan)
+library(phyloseq)
+library(microbiome)
+library(ALDEx2)
+library(dplyr)
+library(tibble)
+library(pheatmap)
 ```
 
 # Goal for this section
@@ -322,6 +327,13 @@ head(sig_tax)
 
 ## Step 6 — Visualize differential taxa
 
+```{r}
+df_nocancer_adm = merge(as.data.frame(group_abx), t(otu_counts), by = "row.names")
+
+OTU138 = ggplot(df_nocancer_adm, aes(x = group_abx, y = OTU138, fill = group_abx)) + labs(x = "ABX (TAPI)", y = "OTU138 counts") +
+  geom_boxplot() + theme_classic() + scale_fill_manual(values = c("black", "white"))
+OTU138 
+```
 
 ### Step 6A — Effect direction plot (diff.btw)
 

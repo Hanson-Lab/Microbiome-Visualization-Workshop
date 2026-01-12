@@ -19,8 +19,11 @@ knitr::opts_knit$set(root.dir = "..")
 ```
 
 ```{r packages_for_knit, include=FALSE}
-# Source package installation/loading script (used for knitting only)
-source("scripts/00_install_packages.R")
+# Load packages for this file
+library(knitr)
+library(phyloseq)
+library(dplyr)
+library(ggplot2)
 ```
 
 

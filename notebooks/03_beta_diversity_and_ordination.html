@@ -11,7 +11,7 @@
 
 <meta name="author" content="Blake Hanson, PhD" />
 
-<meta name="date" content="2026-01-11" />
+<meta name="date" content="2026-01-12" />
 
 <title>03 – Comparing Samples: Beta Diversity and Ordination</title>
 
@@ -353,7 +353,7 @@ display: none;
 <h1 class="title toc-ignore">03 – Comparing Samples: Beta Diversity and
 Ordination</h1>
 <h4 class="author">Blake Hanson, PhD</h4>
-<h4 class="date">2026-01-11</h4>
+<h4 class="date">2026-01-12</h4>
 
 </div>
 
@@ -621,12 +621,12 @@ head(meta_for_tests)</code></pre>
 ## NEPS_104        E-2       E         3      Right       TE           TE
 ## NEPS_106        E-1       E         1       Left   Breast     Breast_1
 ##          ExtractionBatch SpikeIn ABX CancerSide CancerSideSample
-## NEPS_100               3      No Yes      Right               No
-## NEPS_101               3      No Yes      Right              Yes
-## NEPS_102               3      No Yes      Right              Yes
-## NEPS_103               3      No Yes      Right              Yes
-## NEPS_104               3      No Yes      Right              Yes
-## NEPS_106               3      No Yes      Right               No</code></pre>
+## NEPS_100               3      No  No      Right               No
+## NEPS_101               3      No  No      Right              Yes
+## NEPS_102               3      No  No      Right              Yes
+## NEPS_103               3      No  No      Right              Yes
+## NEPS_104               3      No  No      Right              Yes
+## NEPS_106               3      No  No      Right               No</code></pre>
 <pre class="r"><code># Create a dataframe of the PERMANOVA results
 adon_res &lt;- vegan::adonis2(
   bray_dist ~ Material,
