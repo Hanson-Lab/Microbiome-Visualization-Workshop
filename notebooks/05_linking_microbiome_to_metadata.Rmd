@@ -21,7 +21,6 @@ knitr::opts_knit$set(root.dir = "..")
 # Load these packages for this file
 library(vegan)
 library(phyloseq)
-library(microbiome)
 library(ALDEx2)
 library(dplyr)
 library(tibble)
