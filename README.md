@@ -60,7 +60,7 @@ By the end of the workshop, participants will be able to:
 2. Sign in (or create a free account)
 
 ### Step 2 — Join Our Workshop Group
-1. Use the following link to join the group
+1. Use the following link to join the group - https://tinyurl.com/AMR-Workshop
 
 ### Step 3 - Create A New Project From Our Template
 1. Click **New Project**
@@ -76,7 +76,7 @@ The packages for use on Posit Cloud are already installed.
 
 Package installation and loading are handled automatically when knitting the notebooks.
 
-The script below is sourced by each notebook **only for knitting**:
+If you are using Posit Cloud, the script below is sourced by each notebook **only for knitting**. If you are running the workshop in your own RStudio enviornment, you can run this script to assure the correct packages are installed. 
 
 ```
 scripts/00_install_packages.R
