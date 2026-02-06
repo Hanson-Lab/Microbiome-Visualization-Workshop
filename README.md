@@ -166,6 +166,11 @@ This workshop is designed for:
 No prior experience with `phyloseq` or network analysis is assumed. Basic familiarity with R is helpful.
 
 
+## Instructors
+
+Workshop offered by Blake M. Hanson, MS, PhD, and Hossaena Ayele, MSc
+
+
 ## Citation
 
 If you reference figures or workflows from this workshop in your own work, please cite:
